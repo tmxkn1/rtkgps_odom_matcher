@@ -3,27 +3,50 @@
 using namespace rtkgps_odom_matcher;
 
 Matcher::Matcher(ros::NodeHandle &node, ros::NodeHandle &privateNode)
-: R(Matrix::eye(2)), T(Matrix::zeros(2, 1))
+    : R(Matrix::eye(2)), T(Matrix::zeros(2, 1))
 {
-    privateNode.param<std::string>("frame_id", frameId, "gps_map");
+    privateNode.param<std::string>("world_frame_id", worldFrameId, "sat_map_origin");
     privateNode.param<std::string>("child_frame_id", childFrameId, "map");
+    privateNode.param<int>("gps_odom_max_buffer_size", gpsOdomMaxBufferSize, 500);
+    privateNode.param<int>("wheel_odom_max_buffer_size", wheelOdomMaxBufferSize, 500);
+    privateNode.param<double>("gps_odom_tolerance", gpsOdomTolerance, 0.1);
+    privateNode.param<double>("wheel_odom_tolerance", wheelOdomTolerance, 0.01);
+    privateNode.param<bool>("use_floating_rtk", useFloatingRTK, true);
+    privateNode.param<double>("update_rate", updateRate, 1.0);
+    privateNode.param<int>("min_required_buffer_size", minRequiredBufferSize, 5);
+    ROS_INFO_STREAM("world_frame_id: " << worldFrameId);
+    if (minRequiredBufferSize < 5)
+    {
+        ROS_WARN_STREAM("min_required_buffer_size is less than 5, setting to 5.");
+        minRequiredBufferSize = 5;
+    }
+    privateNode.param<double>("time_seeking_tolerance", timeSeekingTolerance, 0.5);
+
+    gpsDs = new OdomDataStore(gpsOdomMaxBufferSize);
+    wheelDs = new OdomDataStore(wheelOdomMaxBufferSize);
+    wheelDsIndex = std::deque<int>();
+    minRequiredBufferSize = 5;
+    gpsQauality = 4;
+    isTransformReady = false;
+
+    transformStamped.header.frame_id = worldFrameId;
+    transformStamped.child_frame_id = childFrameId;
+    transformStamped.transform.translation = tf2::toMsg(tf2::Vector3(0, 0, 0));
+    transformStamped.transform.rotation = tf2::toMsg(tf2::Quaternion::getIdentity());
 
     gpggaSub = node.subscribe("nmea/gpgga", 10, &Matcher::gpggaCallback, this);
     gpsOdomSub = node.subscribe("odometry/gps", 10, &Matcher::gpsOdomCallback, this);
     wheelOdomSub = node.subscribe("odometry/wheel", 10, &Matcher::wheelOdomCallback, this);
-    
-    gpsDs = new OdomDataStore(100);
-    wheelDs = new OdomDataStore(100);
-    minRequiredBufferSize = 5;
-    gpsQauality = 4;
+    periodicUpdateTimer_ = node.createTimer(ros::Duration(1./updateRate), &Matcher::periodicUpdate, this);
 
-    ROS_INFO("Matcher initialized.");
+    ROS_INFO("rtkgps_odom_matcher initialized.");
 }
 
 Matcher::~Matcher()
-{}
+{
+}
 
-void Matcher::publishTransform()
+void Matcher::findTransform()
 {
     if (gpsDs->size() < minRequiredBufferSize)
     {
@@ -36,29 +59,17 @@ void Matcher::publishTransform()
         return;
     }
 
-    static tf2_ros::TransformBroadcaster br;
-    geometry_msgs::TransformStamped transformStamped;
-    transformStamped.header.stamp = ros::Time(wheelDs->getTimeBack(0));
-    transformStamped.header.frame_id = frameId;
-    transformStamped.child_frame_id = childFrameId;
-    findTransform(transformStamped);
-    br.sendTransform(transformStamped);
-}
-
-void Matcher::findTransform(geometry_msgs::TransformStamped &transformStamped)
-{
-    ROS_INFO_STREAM("Finding transform from wheel odom to GPS odom..." );
     ros::Time startTime = ros::Time::now();
-    double wheelPos[wheelDs->size()*2], gpsPos[gpsDs->size()*2];
+
+    double wheelPos[wheelDs->size() * 2], gpsPos[gpsDs->size() * 2];
     wheelDs->getPosition(wheelPos);
     gpsDs->getPosition(gpsPos);
+
     IcpPointToPoint icp(wheelPos, wheelDs->size(), 2);
     icp.setMaxIterations(10);
     icp.setMinDeltaParam(0.01);
     icp.fit(gpsPos, gpsDs->size(), R, T, -1);
 
-    transformStamped.transform.translation.x = T.val[0][0];
-    transformStamped.transform.translation.y = T.val[1][0];
     double yaw = atan2(R.val[1][0], R.val[0][0]);
     tf2::Quaternion q;
     q.setRPY(0, 0, yaw);
@@ -66,8 +77,39 @@ void Matcher::findTransform(geometry_msgs::TransformStamped &transformStamped)
     transformStamped.transform.rotation.y = q.y();
     transformStamped.transform.rotation.z = q.z();
     transformStamped.transform.rotation.w = q.w();
+    transformStamped.transform.translation.x = T.val[0][0];
+    transformStamped.transform.translation.y = T.val[1][0];
+
+    isTransformReady = true;
+
     ros::Time endTime = ros::Time::now();
-    ROS_INFO_STREAM("Found transform from wheel odom to GPS odom in " << (endTime - startTime).toSec() << " s, with points " << gpsDs->size() << " & " << wheelDs->size() << ". Yaw is: " << yaw << ".");
+    ROS_INFO_STREAM("Found transform from wheel odom to GPS odom in " << (endTime - startTime).toSec() << " s, with " << gpsDs->size() << " GPS Odom data & " << wheelDs->size() << "Wheel Odom data. Yaw is: " << yaw << ".");
+}
+
+void Matcher::removeOldestDataBlock()
+{
+    // GPS odom is published less frequently than Wheel odom, so we use the i-th
+    // oldest GPS data as a reference to locate the wheel odom data published
+    // around the similar time, and remove all data before that.
+    ros::Time start = ros::Time::now();
+    for (int i = 0; i < gpsDs->size(); i++)
+    {
+        double gpsTime = gpsDs->getTime(i);
+        int index = wheelDs->seekTime(gpsTime, timeSeekingTolerance);
+        if (index <= 0)
+        {
+            continue;
+        }
+        wheelDs->discardFront(index);
+        gpsDs->discardFront(i);
+        ros::Time end = ros::Time::now();
+        ROS_DEBUG_STREAM("Removed " << index << " oldest wheel odom data and " << i << " oldest GPS odom data. Used " << (end - start).toSec() << " s.");
+        ROS_DEBUG_STREAM("New data sizes: wheel odom: " << wheelDs->size() << ", GPS odom: " << gpsDs->size() << ".");
+        return;
+    }
+    ROS_WARN_STREAM("No wheel odom data found around any GPS odom data. Clearing all data...");
+    wheelDs->clear();
+    gpsDs->clear();
 }
 
 void Matcher::gpggaCallback(const nmea_msgs::Gpgga::ConstPtr &msg)
@@ -82,7 +124,7 @@ void Matcher::wheelOdomCallback(const nav_msgs::Odometry::ConstPtr &msg)
         assert(wheelDs->push(msg));
         return;
     }
-    
+
     double prevPos[2];
     wheelDs->getPositionBack(0, prevPos);
     if (getDistance(prevPos[0], prevPos[1], msg->pose.pose.position.x, msg->pose.pose.position.y) < wheelOdomTolerance)
@@ -90,12 +132,9 @@ void Matcher::wheelOdomCallback(const nav_msgs::Odometry::ConstPtr &msg)
         ROS_DEBUG_STREAM("Wheel Odom change is less than " << wheelOdomTolerance << " m. Skipping data.");
         return;
     }
-    ROS_INFO("Wheel odom received.");
-    ROS_DEBUG_STREAM("[msg] pose.x: " << msg->pose.pose.position.x << ", pose.y: " << msg->pose.pose.position.y);
-    ROS_DEBUG_STREAM("[prevmsg] pose.x: " << prevPos[0] << ", pose.y: " << prevPos[1] << ".");
     if (wheelDs->push(msg))
         return;
-    ROS_WARN("Wheel odom buffer overflow, removing old data.");
+    ROS_DEBUG("Wheel odom buffer overflow, removing old data.");
     removeOldestDataBlock();
     assert(wheelDs->push(msg));
 }
@@ -107,12 +146,13 @@ void Matcher::gpsOdomCallback(const nav_msgs::Odometry::ConstPtr &msg)
         ROS_WARN("GPS quality insufficient, skipping data.");
         return;
     }
+    int wheelDsId = wheelDs->size() - 1;
     if (gpsDs->size() == 0)
     {
         assert(gpsDs->push(msg));
         return;
     }
-    
+
     double prevPos[2];
     gpsDs->getPositionBack(0, prevPos);
     if (getDistance(prevPos[0], prevPos[1], msg->pose.pose.position.x, msg->pose.pose.position.y) < gpsOdomTolerance)
@@ -123,7 +163,7 @@ void Matcher::gpsOdomCallback(const nav_msgs::Odometry::ConstPtr &msg)
 
     if (!gpsDs->push(msg))
     {
-        ROS_INFO("GPS odom buffer overflow, clearing buffer.");
+        ROS_DEBUG("GPS odom buffer overflow, clearing buffer.");
         removeOldestDataBlock();
         assert(gpsDs->push(msg));
     }
@@ -134,40 +174,25 @@ void Matcher::gpsOdomCallback(const nav_msgs::Odometry::ConstPtr &msg)
     //     // ROS_DEBUG_STREAM(msg->header.seq << "," <<wheelBufferSeq << "," << std::setprecision(15) << msg->header.stamp.toSec() << "," << std::setprecision(15) << wheelBufferTime.toSec() << ",nan");
     //     return;
     // }
-    
-    // ss.str("");
-    // ss << msg->header.seq << "," <<wheelBufferSeq << "," << std::setprecision(15) << msg->header.stamp.toSec() << "," << wheelBufferTime.toSec() << ",";
-    publishTransform();
+    findTransform();
 }
 
-void Matcher::removeOldestDataBlock()
+void Matcher::periodicUpdate(const ros::TimerEvent& event)
 {
-    // GPS odom is published less frequently than Wheel odom, so we use the i-th 
-    // oldest GPS data as a reference to locate the wheel odom data published
-    // around the similar time, and remove all data before that.
-    for (int i = 1; i < gpsDs->size(); i++)
+    static tf2_ros::TransformBroadcaster br;
+
+    if (isTransformReady)
     {
-        double gpsTime = gpsDs->getTime(i);
-        int index = wheelDs->seekTime(gpsTime, true, timeSeekingTolerance);
-        if (index == 0)
-            continue;
-        if (index < 0)
-        {
-            ROS_WARN_STREAM("No wheel odom data found around GPS odom data at " << gpsTime << ". Searching for newer time stamp...");
-            continue;
-        }
-        wheelDs->discardFront(index);
-        gpsDs->discardFront(i);
-        ROS_INFO_STREAM("Removed " << index << " oldest wheel odom data and " << i << " oldest GPS odom data.");
-        ROS_INFO_STREAM("New data sizes: wheel odom: " << wheelDs->size() << ", GPS odom: " << gpsDs->size() << ".");
-        return;
+        transformStamped.header.stamp = ros::Time::now();
     }
-    ROS_WARN_STREAM("No wheel odom data found around any GPS odom data. Clearing all data...");
-    wheelDs->clear();
-    gpsDs->clear();
+    else
+    {
+        transformStamped.header.stamp = ros::Time::now();
+    }
+    br.sendTransform(transformStamped);
 }
 
 double Matcher::getDistance(double x1, double y1, double x2, double y2)
 {
-    return sqrt(pow(x1-x2, 2) + pow(y1-y2, 2));
+    return sqrt(pow(x1 - x2, 2) + pow(y1 - y2, 2));
 }

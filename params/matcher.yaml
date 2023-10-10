@@ -1,0 +1,37 @@
+world_frame_id: "origin"
+child_frame_id: "map"
+
+# The maximum number of data that the matcher will store. If the buffer is full, the oldest data will
+# be discarded.
+# The larger buffer size, the more accurate the transformation will be. However, be aware that a large
+# buffer size can significantly increase computing time.
+# A good value is around 
+gps_odom_max_buffer_size: 500
+wheel_odom_max_buffer_size: 400
+
+# The tolerance of the GPS odom and Wheel odom. If the difference between the two adjecent values
+# is larger than the tolerance, the data will be discarded.
+gps_odom_tolerance: 0.1
+wheel_odom_tolerance: 0.01
+
+# Whether or not to calculate transformation when RTK GPS is floating.
+use_floating_rtk: true
+
+# The rate at which the matcher will calculate and publish the transformation. Increase the value
+# if GSP odom is published at a higher rate, but cpu load will increase. A value higher than the 
+# GPS odom rate is meaningless in most cases.
+update_rate: 10
+
+# The minimum number of data before the matcher starts to calculate a match. 5 is the minimum.
+# Normally, more data used in the calculation will result in a more accurate transformation. However,
+# be aware that if the rate of the GPS odom is low, the matcher will take increased time to gather
+# enough data.
+# If you experience too much delay in the transformation, try to reduce this value.
+# If you experience inaccurate transformation at the start, try to increase this value.
+min_required_buffer_size: 5
+
+# GPS odom and Wheel odom time stamps are used to find the closest match between the two.
+# A good value is ten times the ratio between the rate of the GPS odom and Wheel odom.
+# e.g. GPS odom is published at 1 Hz and Wheel odom is published at 20 Hz, so the value should be 
+# 1/20*10=0.5.
+time_seeking_tolerance: 0.5

@@ -2,6 +2,7 @@
 
 #include <ros/ros.h>
 #include <nav_msgs/Odometry.h>
+#include <deque>
 
 namespace rtkgps_odom_matcher
 {
@@ -22,15 +23,12 @@ class OdomDataStore
     bool getPositionBack(int index, double* position);
     double getTime(int index);
     double getTimeBack(int index);
-    int seekTime(double time, bool forward, double tolerance);
+    int seekTime(double time, double tolerance);
 
     private:
-    double* positionBuffer;
-    double* timeBuffer;
-    int pointer;
+    std::deque<double> positionBuffer;
+    std::deque<double> timeBuffer;
     int maxBufferSize;
-    int front;
-    int count;
 
     int validateIndex(int index);
 };

@@ -1,10 +1,6 @@
 <launch>
-	<arg name="frame_id" default="origin" />
-	<arg name="child_frame_id" default="map" />
-
 	<node pkg="rtkgps_odom_matcher" type="matcher_node" name="matcher_node" output="screen">
-		<param name="frame_id" value="$(arg frame_id)" />
-		<param name="child_frame_id" value="$(arg child_frame_id)" />
+		<rosparam command="load" file="$(find rtkgps_odom_matcher)/params/matcher.yaml" />
         <remap from="odometry/wheel" to="odom" />
         <remap from="nmea/gpgga" to="reach/nmea/gpgga" />
 	</node>

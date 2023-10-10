@@ -30,7 +30,6 @@ include_directories(
 add_library(${PROJECT_NAME}
     src/matcher.cpp
     src/odomDataStore.cpp
-    # src/odomDataStoreD.cpp
     src/libicp/icp.cpp
     src/libicp/icpPointToPoint.cpp
     src/libicp/icpPointToPlane.cpp
@@ -39,7 +38,7 @@ add_library(${PROJECT_NAME}
 )
 add_dependencies(${PROJECT_NAME} ${catkin_EXPORTED_TARGETS})
 
-catkin_add_gtest(${PROJECT_NAME}-test src/odomDataStore.test.cpp)
+catkin_add_gtest(${PROJECT_NAME}-test tests/odomDataStore.test.cpp)
 if(TARGET ${PROJECT_NAME}-test)
   target_link_libraries(${PROJECT_NAME}-test ${PROJECT_NAME} ${catkin_LIBRARIES})
 endif()

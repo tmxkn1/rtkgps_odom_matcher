@@ -8,165 +8,108 @@ OdomDataStore::OdomDataStore()
 OdomDataStore::OdomDataStore(int maxBufferSize)
 {
     this->maxBufferSize = maxBufferSize;
-    positionBuffer = (double*)calloc(maxBufferSize*2, sizeof(double));
-    timeBuffer = (double*)calloc(maxBufferSize, sizeof(double));
     clear();
 }
 
 OdomDataStore::~OdomDataStore()
 {
-    std::free(positionBuffer);
-    std::free(timeBuffer);
 }
 
 bool OdomDataStore::push(nav_msgs::Odometry::ConstPtr odom){
-    if (count == maxBufferSize)
+    if (timeBuffer.size() >= maxBufferSize)
     {
-        ROS_WARN("OdomDataStore buffer full. Data disgarded.");
+        ROS_DEBUG("OdomDataStore buffer full. Data disgarded.");
         return false;
     }
-
-    pointer++;
-    if (pointer >= maxBufferSize)
-    {
-        pointer = 0;
-        ROS_WARN("OdomDataStore buffer overflow. Shifting data left.");
-    }
-    // ROS_INFO_STREAM("Current pointer: " << pointer << ", maxBufferSize: " << maxBufferSize << ", count: " << count << ".");
-    positionBuffer[pointer*2] = odom->pose.pose.position.x;
-    positionBuffer[pointer*2+1] = odom->pose.pose.position.y;
-    timeBuffer[pointer] = odom->header.stamp.toSec();
-    count ++;
+    positionBuffer.push_back(odom->pose.pose.position.x);
+    positionBuffer.push_back(odom->pose.pose.position.y);
+    timeBuffer.push_back(odom->header.stamp.toSec());
     return true;
 }
 
 void OdomDataStore::clear()
 {
-    pointer = -1;
-    front = 0;
-    count = 0;
+    positionBuffer = std::deque<double>();
+    timeBuffer = std::deque<double>();
 }
 
 int OdomDataStore::size()
 {
-    return count;
+    return timeBuffer.size();
 }
 
 bool OdomDataStore::discardFront(int index)
 {
-    index = validateIndex(index);
-    if (index < 0)
+    if (validateIndex(index))
         return false;
-    front = index;
-    count -= index;
-    assert(count >= 0);
+    if (index == 0)
+        return true;
+    positionBuffer.erase(positionBuffer.begin(), positionBuffer.begin()+index*2);
+    timeBuffer.erase(timeBuffer.begin(), timeBuffer.begin()+index);
     return true;
 }
 
 bool OdomDataStore::getPosition(double* position)
 {
-    if (pointer < 0)
-        return false;
-    if (pointer > front)
-        memcpy(position, &positionBuffer[front*2], 2*count*sizeof(double));
-    else
-    {
-        memcpy(position, &positionBuffer[front*2], 2*(maxBufferSize-front)*sizeof(double));
-        memcpy(position+2*(maxBufferSize-front), positionBuffer, 2*(pointer+1)*sizeof(double));
-    }
+    std::copy(positionBuffer.begin(), positionBuffer.end(), position);
     return true;
 }
 
 bool OdomDataStore::getPosition(int index, double* position)
 {
-    index = validateIndex(index);
-    if (index < 0)
+    if (validateIndex(index))
         return false;
-    memcpy(position, &positionBuffer[index*2], 2*sizeof(double));
+    std::copy(positionBuffer.begin()+index*2, positionBuffer.begin()+index*2+2, position);
     return true;
 }
 
 bool OdomDataStore::getPositionBack(int index, double* position)
 {
-    return getPosition(count-index-1, position);
+    if (validateIndex(index))
+        return false;
+    std::copy(positionBuffer.end()-index*2-2, positionBuffer.end()-index*2, position);
+    return true;
 }
 
 double OdomDataStore::getTime(int index)
-{
-    index = validateIndex(index);
-    if (index < 0)
+{   
+    if (validateIndex(index))
         return -1;
     return timeBuffer[index];
 }
 
 double OdomDataStore::getTimeBack(int index)
 {
-    return getTime(count-index);
+    return getTime(timeBuffer.size()-index-1);
 }
 
-int OdomDataStore::seekTime(double time, bool forward=true, double tolerance=0.5){ 
-    if (pointer < 0)
-    {
+int OdomDataStore::seekTime(double time, double tolerance=0.5){ 
+    int size = timeBuffer.size();
+    if (size == 0)
         return -1;
-    }
-    int k = 1;
-    int direction = forward ? 1 : -1;
-    int i = forward ? front : pointer;
-
+        
+    int i = 0;
     // initial state
     double minDiff = abs(timeBuffer[i] - time);
-
-    while (k < count)
+    for (double t: timeBuffer)
     {
-        i += direction;
-        if (i >= maxBufferSize)
-        {
-            i = 0;
-        }
-        else if (i < 0)
-        {
-            i = maxBufferSize - 1;
-        }
-
-        double diff = abs(timeBuffer[i] - time);
-        if (diff < minDiff)
+        double diff = abs(t - time);
+        if (diff <= minDiff)
         {
             minDiff = diff;
+            i++;
+            continue;
         }
-        else
-        {
-            i -= direction;
-            if (i < 0)
-            {
-                i += maxBufferSize;
-            }
-            break;
-        }
-        k++;
+        break;
     }
     if (minDiff > tolerance)
     {
         return -1;
     }
-    i -= front;
-    if (i < 0)
-    {
-        i += maxBufferSize;
-    }
+    return i-1;
 }
 
 int OdomDataStore::validateIndex(int index)
 {
-    if (pointer < 0 || index < 0)
-        return -1;
-    index += front;
-    if (index >= maxBufferSize)
-    {
-        if (front < pointer)
-            return -1;
-        index -= maxBufferSize;
-        if (index > pointer)
-            return -1;
-    }
-    return index;
+    return index < 0 || index >= timeBuffer.size();
 }
