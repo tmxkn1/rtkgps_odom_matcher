@@ -1,12 +1,11 @@
-world_frame_id: "origin"
+world_frame_id: "satellite_map_origin"
 child_frame_id: "map"
 
 # The maximum number of data that the matcher will store. If the buffer is full, the oldest data will
 # be discarded.
 # The larger buffer size, the more accurate the transformation will be. However, be aware that a large
 # buffer size can significantly increase computing time.
-# A good value is around 
-gps_odom_max_buffer_size: 500
+gps_odom_max_buffer_size: 400
 wheel_odom_max_buffer_size: 400
 
 # The tolerance of the GPS odom and Wheel odom. If the difference between the two adjecent values

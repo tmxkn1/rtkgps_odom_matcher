@@ -1,7 +1,8 @@
 <launch>
 	<node pkg="rtkgps_odom_matcher" type="matcher_node" name="matcher_node" output="screen">
 		<rosparam command="load" file="$(find rtkgps_odom_matcher)/params/matcher.yaml" />
-        <remap from="odometry/wheel" to="odom" />
-        <remap from="nmea/gpgga" to="reach/nmea/gpgga" />
+		<!-- <remap from="odometry/gps" to="my_odom_gps_topic" /> -->
+        <!-- <remap from="odometry/wheel" to="my_odom_wheel_topic" /> -->
+        <!-- <remap from="nmea/gpgga" to="my_nmea_gpgga_topic" /> -->
 	</node>
 </launch>
