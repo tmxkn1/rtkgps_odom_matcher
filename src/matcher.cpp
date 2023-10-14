@@ -70,9 +70,12 @@ void Matcher::findTransform()
     icp.setMinDeltaParam(0.01);
     icp.fit(gpsPos, gpsDs->size(), R, T, -1);
 
-    double yaw = atan2(R.val[1][0], R.val[0][0]);
+    tf2::Matrix3x3 RM;
+    RM.setValue(R.val[0][0], R.val[0][1], 0,
+                R.val[1][0], R.val[1][1], 0,
+                0, 0, 1);
     tf2::Quaternion q;
-    q.setRPY(0, 0, yaw);
+    RM.getRotation(q);
     transformStamped.transform.rotation.x = q.x();
     transformStamped.transform.rotation.y = q.y();
     transformStamped.transform.rotation.z = q.z();
@@ -83,7 +86,8 @@ void Matcher::findTransform()
     isTransformReady = true;
 
     ros::Time endTime = ros::Time::now();
-    ROS_INFO_STREAM("Found transform from wheel odom to GPS odom in " << (endTime - startTime).toSec() << " s, with " << gpsDs->size() << " GPS Odom data & " << wheelDs->size() << "Wheel Odom data. Yaw is: " << yaw << ".");
+    ROS_DEBUG_STREAM("Found transform from wheel odom to GPS odom in " << (endTime - startTime).toSec() 
+    << " s, with " << gpsDs->size() << " GPS Odom data & " << wheelDs->size() << "Wheel Odom data.");
 }
 
 void Matcher::removeOldestDataBlock()
