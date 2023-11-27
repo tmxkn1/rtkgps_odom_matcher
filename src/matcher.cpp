@@ -14,6 +14,7 @@ Matcher::Matcher(ros::NodeHandle &node, ros::NodeHandle &privateNode)
     privateNode.param<bool>("use_floating_rtk", useFloatingRTK, true);
     privateNode.param<double>("update_rate", updateRate, 1.0);
     privateNode.param<int>("min_required_buffer_size", minRequiredBufferSize, 5);
+    privateNode.param<bool>("start_immediately", poseMatchStarted, false);
     ROS_INFO_STREAM("world_frame_id: " << worldFrameId);
     if (minRequiredBufferSize < 5)
     {
@@ -38,6 +39,10 @@ Matcher::Matcher(ros::NodeHandle &node, ros::NodeHandle &privateNode)
     gpsOdomSub = node.subscribe("odometry/gps", 10, &Matcher::gpsOdomCallback, this);
     wheelOdomSub = node.subscribe("odometry/wheel", 10, &Matcher::wheelOdomCallback, this);
     periodicUpdateTimer_ = node.createTimer(ros::Duration(1./updateRate), &Matcher::periodicUpdate, this);
+
+    startMatchSrv = node.advertiseService("start_match", &Matcher::startMatchCallback, this);
+    stopMatchSrv = node.advertiseService("stop_match", &Matcher::stopMatchCallback, this);
+    sendPoseEstSrv = node.advertiseService("send_pose_est", &Matcher::sendPoseEstCallback, this);
 
     ROS_INFO("rtkgps_odom_matcher initialized.");
 }
@@ -68,6 +73,8 @@ void Matcher::findTransform()
     IcpPointToPoint icp(wheelPos, wheelDs->size(), 2);
     icp.setMaxIterations(10);
     icp.setMinDeltaParam(0.01);
+
+    const std::lock_guard<std::mutex> lock(mutex);
     icp.fit(gpsPos, gpsDs->size(), R, T, -1);
 
     tf2::Matrix3x3 RM;
@@ -85,9 +92,11 @@ void Matcher::findTransform()
 
     isTransformReady = true;
 
+    mutex.unlock();
+
     ros::Time endTime = ros::Time::now();
     ROS_DEBUG_STREAM("Found transform from wheel odom to GPS odom in " << (endTime - startTime).toSec() 
-    << " s, with " << gpsDs->size() << " GPS Odom data & " << wheelDs->size() << "Wheel Odom data.");
+    << " s, with " << gpsDs->size() << " GPS Odom data & " << wheelDs->size() << " Wheel Odom data.");
 }
 
 void Matcher::removeOldestDataBlock()
@@ -123,6 +132,10 @@ void Matcher::gpggaCallback(const nmea_msgs::Gpgga::ConstPtr &msg)
 
 void Matcher::wheelOdomCallback(const nav_msgs::Odometry::ConstPtr &msg)
 {
+    if (!poseMatchStarted)
+    {
+        return;
+    }
     if (wheelDs->size() == 0)
     {
         assert(wheelDs->push(msg));
@@ -145,6 +158,10 @@ void Matcher::wheelOdomCallback(const nav_msgs::Odometry::ConstPtr &msg)
 
 void Matcher::gpsOdomCallback(const nav_msgs::Odometry::ConstPtr &msg)
 {
+    if (!poseMatchStarted || wheelDs->size() < 2)
+    {
+        return;
+    }
     if (gpsQauality != 4 && !(useFloatingRTK && gpsQauality == 5))
     {
         ROS_WARN("GPS quality insufficient, skipping data.");
@@ -181,18 +198,58 @@ void Matcher::gpsOdomCallback(const nav_msgs::Odometry::ConstPtr &msg)
     findTransform();
 }
 
+bool Matcher::startMatchCallback(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res)
+{
+    poseMatchStarted = true;
+    res.success = true;
+    res.message = "Pose match started.";
+    return true;
+}
+
+bool Matcher::stopMatchCallback(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res)
+{
+    poseMatchStarted = false;
+    res.success = true;
+    res.message = "Pose match stopped.";
+    return true;
+}
+
+bool Matcher::sendPoseEstCallback(SetPose::Request &req, SetPose::Response &res)
+{
+    const std::lock_guard<std::mutex> lock(mutex);
+    
+    tf2::Quaternion q(req.pose.pose.pose.orientation.x, req.pose.pose.pose.orientation.y, req.pose.pose.pose.orientation.z, req.pose.pose.pose.orientation.w);
+    tf2::Matrix3x3 m(q);
+    
+    R.val[0][0] = m[0][0];
+    R.val[0][1] = m[0][1];
+    R.val[1][0] = m[1][0];
+    R.val[1][1] = m[1][1];
+
+    T.val[0][0] = req.pose.pose.pose.position.x;
+    T.val[1][0] = req.pose.pose.pose.position.y;
+    
+    transformStamped.transform.rotation.x = q.x();
+    transformStamped.transform.rotation.y = q.y();
+    transformStamped.transform.rotation.z = q.z();
+    transformStamped.transform.rotation.w = q.w();
+    transformStamped.transform.translation.x = T.val[0][0];
+    transformStamped.transform.translation.y = T.val[1][0];
+    transformStamped.header.stamp = ros::Time::now();
+
+    isTransformReady = true;
+    static tf2_ros::TransformBroadcaster br;
+    br.sendTransform(transformStamped);
+
+    mutex.unlock();
+
+    return true;
+}
+
 void Matcher::periodicUpdate(const ros::TimerEvent& event)
 {
     static tf2_ros::TransformBroadcaster br;
-
-    if (isTransformReady)
-    {
-        transformStamped.header.stamp = ros::Time::now();
-    }
-    else
-    {
-        transformStamped.header.stamp = ros::Time::now();
-    }
+    transformStamped.header.stamp = ros::Time::now();
     br.sendTransform(transformStamped);
 }
 

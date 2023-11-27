@@ -2,7 +2,9 @@
 
 #include <string>
 #include <deque>
+#include <mutex>
 #include <ros/ros.h>
+#include <std_srvs/Trigger.h>
 #include <nav_msgs/Odometry.h>
 #include <geometry_msgs/Transform.h>
 #include <nmea_msgs/Gpgga.h>
@@ -12,6 +14,7 @@
 #include "libicp/matrix.h"
 #include "libicp/icpPointToPoint.h"
 #include "odomDataStore.h"
+#include "rtkgps_odom_matcher/SetPose.h"
 
 namespace rtkgps_odom_matcher
 {
@@ -34,6 +37,8 @@ private:
     int minRequiredBufferSize = 5;
     double timeSeekingTolerance = 0.5;
 
+    bool poseMatchStarted = false;
+
     OdomDataStore *gpsDs;
     OdomDataStore *wheelDs;
     std::deque<int> wheelDsIndex;
@@ -46,7 +51,12 @@ private:
     ros::Subscriber gpggaSub;
     ros::Subscriber gpsOdomSub;
     ros::Subscriber wheelOdomSub;
+    ros::ServiceServer startMatchSrv;
+    ros::ServiceServer stopMatchSrv;
+    ros::ServiceServer sendPoseEstSrv;
     ros::Timer periodicUpdateTimer_;
+
+    std::mutex mutex;
 
     void findTransform();
     void removeOldestDataBlock();
@@ -55,6 +65,9 @@ private:
     void gpsOdomCallback(const nav_msgs::Odometry::ConstPtr &msg);
     void wheelOdomCallback(const nav_msgs::Odometry::ConstPtr &msg);
     void periodicUpdate(const ros::TimerEvent& event);
+    bool startMatchCallback(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res);
+    bool stopMatchCallback(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res);
+    bool sendPoseEstCallback(SetPose::Request &req, SetPose::Response &res);
     
     static double getDistance(double x1, double y1, double x2, double y2);
 };

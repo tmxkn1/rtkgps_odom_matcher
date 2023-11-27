@@ -34,3 +34,7 @@ min_required_buffer_size: 5
 # e.g. GPS odom is published at 1 Hz and Wheel odom is published at 20 Hz, so the value should be 
 # 1/20*10=0.5.
 time_seeking_tolerance: 0.5
+
+# Start the matcher immediately after the node is launched. If false, the matcher will wait for the
+# the start_match service trigger.
+start_immediately: false
