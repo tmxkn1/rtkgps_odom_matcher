@@ -200,8 +200,8 @@ void Matcher::gpsOdomCallback(const nav_msgs::Odometry::ConstPtr &msg)
 
 bool Matcher::startMatchCallback(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res)
 {
-    gpsDs.clear();
-    wheelDs.clear();
+    gpsDs->clear();
+    wheelDs->clear();
     poseMatchStarted = true;
     res.success = true;
     res.message = "Pose match started.";
