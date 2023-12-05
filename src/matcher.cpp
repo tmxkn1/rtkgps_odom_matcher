@@ -43,6 +43,7 @@ Matcher::Matcher(ros::NodeHandle &node, ros::NodeHandle &privateNode)
     startMatchSrv = node.advertiseService("start_match", &Matcher::startMatchCallback, this);
     stopMatchSrv = node.advertiseService("stop_match", &Matcher::stopMatchCallback, this);
     sendPoseEstSrv = node.advertiseService("send_pose_est", &Matcher::sendPoseEstCallback, this);
+    flipMatchSrv = node.advertiseService("flip_match", &Matcher::flipMatchCallback, this);
 
     ROS_INFO("rtkgps_odom_matcher initialized.");
 }
@@ -76,6 +77,11 @@ void Matcher::findTransform()
 
     const std::lock_guard<std::mutex> lock(mutex);
     icp.fit(gpsPos, gpsDs->size(), R, T, -1);
+    R.val[0][0] = flipMatch * R.val[0][0];
+    R.val[0][1] = flipMatch * R.val[0][1];
+    R.val[1][0] = flipMatch * R.val[1][0];
+    R.val[1][1] = flipMatch * R.val[1][1];
+    flipMatch = 1;
 
     tf2::Matrix3x3 RM;
     RM.setValue(R.val[0][0], R.val[0][1], 0,
@@ -223,10 +229,8 @@ bool Matcher::sendPoseEstCallback(SetPose::Request &req, SetPose::Response &res)
     tf2::Quaternion q(req.pose.pose.pose.orientation.x, req.pose.pose.pose.orientation.y, req.pose.pose.pose.orientation.z, req.pose.pose.pose.orientation.w);
     tf2::Matrix3x3 m(q);
     
-    R.val[0][0] = m[0][0];
-    R.val[0][1] = m[0][1];
-    R.val[1][0] = m[1][0];
-    R.val[1][1] = m[1][1];
+    R.val[0][0] = m[0][0]; R.val[0][1] = m[0][1];
+    R.val[1][0] = m[1][0]; R.val[1][1] = m[1][1];
 
     T.val[0][0] = req.pose.pose.pose.position.x;
     T.val[1][0] = req.pose.pose.pose.position.y;
@@ -244,6 +248,13 @@ bool Matcher::sendPoseEstCallback(SetPose::Request &req, SetPose::Response &res)
     br.sendTransform(transformStamped);
 
     mutex.unlock();
+
+    return true;
+}
+
+bool Matcher::flipMatchCallback(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res)
+{
+    flipMatch = -1 * flipMatch;
 
     return true;
 }

@@ -38,6 +38,7 @@ private:
     double timeSeekingTolerance = 0.5;
 
     bool poseMatchStarted = false;
+    int flipMatch = 1;
 
     OdomDataStore *gpsDs;
     OdomDataStore *wheelDs;
@@ -54,6 +55,7 @@ private:
     ros::ServiceServer startMatchSrv;
     ros::ServiceServer stopMatchSrv;
     ros::ServiceServer sendPoseEstSrv;
+    ros::ServiceServer flipMatchSrv;
     ros::Timer periodicUpdateTimer_;
 
     std::mutex mutex;
@@ -68,6 +70,7 @@ private:
     bool startMatchCallback(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res);
     bool stopMatchCallback(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res);
     bool sendPoseEstCallback(SetPose::Request &req, SetPose::Response &res);
+    bool flipMatchCallback(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res);
     
     static double getDistance(double x1, double y1, double x2, double y2);
 };
