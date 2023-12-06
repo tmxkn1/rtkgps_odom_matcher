@@ -93,6 +93,7 @@ void Matcher::findTransform()
     transformStamped.transform.translation.y = T.val[1][0];
 
     isTransformReady = true;
+    flipped = false;
 
     mutex.unlock();
 
@@ -251,7 +252,7 @@ bool Matcher::sendPoseEstCallback(SetPose::Request &req, SetPose::Response &res)
 bool Matcher::flipMatchCallback(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res)
 {
     flipMatch = !flipMatch;
-
+    flipped = false;
     return true;
 }
 
@@ -273,11 +274,12 @@ void Matcher::periodicUpdate(const ros::TimerEvent& event)
     static tf2_ros::TransformBroadcaster br;
     transformStamped.header.stamp = ros::Time::now();
 
-    if (flipMatch)
+    if (flipMatch && !flipped)
     {
         double z = transformStamped.transform.rotation.z;
         transformStamped.transform.rotation.z = transformStamped.transform.rotation.w;
         transformStamped.transform.rotation.w = -z;
+        flipped = true;
     }
     
     br.sendTransform(transformStamped);

@@ -39,6 +39,7 @@ private:
 
     bool poseMatchStarted = false;
     bool flipMatch = false;
+    bool flipped = true;
 
     OdomDataStore *gpsDs;
     OdomDataStore *wheelDs;
