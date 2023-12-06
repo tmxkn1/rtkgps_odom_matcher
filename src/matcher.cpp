@@ -252,7 +252,6 @@ bool Matcher::sendPoseEstCallback(SetPose::Request &req, SetPose::Response &res)
 bool Matcher::flipMatchCallback(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res)
 {
     flipMatch = !flipMatch;
-    flipped = false;
     return true;
 }
 
