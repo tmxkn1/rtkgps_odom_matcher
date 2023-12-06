@@ -250,7 +250,7 @@ bool Matcher::sendPoseEstCallback(SetPose::Request &req, SetPose::Response &res)
 
 bool Matcher::flipMatchCallback(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res)
 {
-    flipMatch = -1 * flipMatch;
+    flipMatch = !flipMatch;
 
     return true;
 }
@@ -273,10 +273,13 @@ void Matcher::periodicUpdate(const ros::TimerEvent& event)
     static tf2_ros::TransformBroadcaster br;
     transformStamped.header.stamp = ros::Time::now();
 
-    transformStamped.transform.rotation.x *= flipMatch;
-    transformStamped.transform.rotation.y *= flipMatch;
-    transformStamped.transform.rotation.z *= flipMatch;
-    transformStamped.transform.rotation.w *= flipMatch;
+    if (flipMatch)
+    {
+        double z = transformStamped.transform.rotation.z;
+        transformStamped.transform.rotation.z = transformStamped.transform.rotation.w;
+        transformStamped.transform.rotation.w = -z;
+    }
+    
     br.sendTransform(transformStamped);
 }
 

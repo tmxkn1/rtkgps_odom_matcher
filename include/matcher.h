@@ -38,7 +38,7 @@ private:
     double timeSeekingTolerance = 0.5;
 
     bool poseMatchStarted = false;
-    double flipMatch = 1.0;
+    bool flipMatch = false;
 
     OdomDataStore *gpsDs;
     OdomDataStore *wheelDs;
