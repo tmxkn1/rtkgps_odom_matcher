@@ -281,6 +281,13 @@ void Matcher::periodicUpdate(const ros::TimerEvent& event)
         transformStamped.transform.rotation.w = -z;
         flipped = true;
     }
+    if (!flipMatch && flipped)
+    {
+        double z = transformStamped.transform.rotation.z;
+        transformStamped.transform.rotation.z = -transformStamped.transform.rotation.w;
+        transformStamped.transform.rotation.w = z;
+        flipped = false;
+    }
     
     br.sendTransform(transformStamped);
 }
