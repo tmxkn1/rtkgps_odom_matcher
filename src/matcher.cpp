@@ -264,6 +264,8 @@ bool Matcher::resetMatchCallback(std_srvs::Trigger::Request &req, std_srvs::Trig
     transformStamped.transform.rotation.w = 1;
     transformStamped.transform.translation.x = 0;
     transformStamped.transform.translation.y = 0;
+    R.eye(2);
+    T.zero();
     gpsDs->clear();
     wheelDs->clear();
     return true;
